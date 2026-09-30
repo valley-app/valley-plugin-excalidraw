@@ -1,0 +1,17 @@
+{
+  "apiVersion": 5,
+  "id": "excalidraw",
+  "name": "Excalidraw",
+  "version": "2.1.0",
+  "description": "Excalidraw whiteboard for .excalidraw, .excalidraw.json and editable .excalidraw.svg files: freehand drawing, shapes, arrows and text on an infinite canvas. Embed drawings in notes with an excalidraw code block, and link elements to notes with [[wikilinks]].",
+  "author": [
+    "valley"
+  ],
+  "authorUrl": [
+    "https://github.com/valley-app"
+  ],
+  "license": "MIT",
+  "minAppVersion": "0.1.0",
+  "isDesktopOnly": true,
+  "enabled": true
+}

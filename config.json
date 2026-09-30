@@ -1,0 +1,49 @@
+{
+  "icon": "icon.svg",
+  "build": {
+    "bundleReact": true
+  },
+  "main": "runtime/index.js",
+  "fileViews": {
+    ".excalidraw": {
+      "view": "excalidraw.editor",
+      "editable": true
+    },
+    ".excalidraw.json": {
+      "view": "excalidraw.editor",
+      "editable": true
+    },
+    ".excalidraw.svg": {
+      "view": "excalidraw.editor",
+      "editable": true
+    }
+  },
+  "provides": [
+    {
+      "id": "workspace.surface",
+      "version": "1.0.0",
+      "kind": "extension"
+    },
+    {
+      "id": "metadataPanel.segment",
+      "version": "1.0.0",
+      "kind": "extension"
+    },
+    {
+      "id": "workspace.bookmark",
+      "kind": "service",
+      "version": "1.0.0"
+    }
+  ],
+  "assets": "runtime/assets",
+  "locales": {
+    "en": "runtime/locales/en.json",
+    "de": "runtime/locales/de.json",
+    "es": "runtime/locales/es.json",
+    "fr": "runtime/locales/fr.json",
+    "zh-CN": "runtime/locales/zh-CN.json"
+  },
+  "runtime": {
+    "ui": "runtime/index.js"
+  }
+}

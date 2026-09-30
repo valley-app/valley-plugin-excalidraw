@@ -1,0 +1,16 @@
+{
+  "excalidraw": [
+    {
+      "id": "drawing",
+      "label": "Drawing",
+      "labelKey": "markdown.examples.drawing",
+      "code": "file: [[Apple/Keynote Flow.excalidraw]]"
+    },
+    {
+      "id": "customHeight",
+      "label": "Custom height",
+      "labelKey": "markdown.examples.customHeight",
+      "code": "file: [[Apple/Keynote Flow.excalidraw]]\nheight: 500"
+    }
+  ]
+}
