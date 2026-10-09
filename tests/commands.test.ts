@@ -1,7 +1,8 @@
+import Ajv from 'ajv'
 import { PLUGIN_SURFACE_V1 } from '@valley/plugin-sdk'
 import { registerDrawingSurfaces } from '../src/surfaces'
 import { initRuntime } from '../src/runtime'
-import { pendingDrawingView, registerDrawingSession, saveDrawingDraft } from '../src/session'
+import { adoptDrawingDraft, claimDrawingDraftOwner, drawingDraft, orphanedDrawingDraftOwners, pendingDrawingView, registerDrawingSession, saveDrawingDraft } from '../src/session'
 import { describe, expect, it, vi } from 'vitest'
 import { createMockValleyApi } from '@valley/plugin-testkit'
 import { readDrawing, updateDrawing, parseDrawingScene, registerExcalidrawCommands } from '../src/commands'
@@ -65,6 +66,42 @@ describe('excalidraw:create', () => {
 
 
 describe('explicit drawing updates', () => {
+  it('validates every semantic result and observes the selected file and exact restoration', async () => {
+    const mock = createMockValleyApi({ manifest: { id: 'excalidraw' }, files: { 'Board.excalidraw': EMPTY_SCENE_JSON } })
+    initRuntime(mock.api)
+    const registrations = vi.spyOn(mock.api.commands, 'register')
+    const off = registerExcalidrawCommands(mock.api)
+    const offSurfaces = registerDrawingSurfaces(mock.api)
+    const seen = new Set<string>()
+    try {
+      const commands = registrations.mock.calls.map(([value]) => value as typeof value & { outputSchema: Record<string, unknown> })
+      expect(commands).toHaveLength(4)
+      const ajv = new Ajv({ strict: false, strictSchema: true, allErrors: true })
+      const call = async (id: string, input?: unknown) => {
+        const result = await mock.api.commands.execute(`excalidraw:${id}`, input)
+        expect(result.ok, id).toBe(true)
+        if (!result.ok) throw new Error(JSON.stringify(result))
+        const validate = ajv.compile(commands.find(command => command.id === id)!.outputSchema)
+        expect(validate(result.value), `${id}: ${JSON.stringify(validate.errors)}`).toBe(true)
+        expect(validate({ ...(result.value as Record<string, unknown>), unexpected: true }), id).toBe(false)
+        seen.add(id)
+        return result.value as Record<string, unknown>
+      }
+      await call('create', {})
+      expect(await mock.api.vault.readFile('Untitled.excalidraw')).toBe(EMPTY_SCENE_JSON)
+      await mock.busUndo.at(-1)!.undo()
+      expect(await mock.api.vault.stat('Untitled.excalidraw')).toBeNull()
+      const baseline = await call('get', { path: 'Board.excalidraw' })
+      await call('scene-update', { path: 'Board.excalidraw', expectedRevision: baseline.revision, scene: { elements: [{ id: 'fern', type: 'rectangle', x: 0, y: 0, width: 10, height: 20, locked: false, customData: { generationData: { status: 'done', html: '<p>Canopy</p>' } } }], appState: { gridSize: 0, gridModeEnabled: false } } })
+      expect(JSON.parse((await mock.api.vault.readFile('Board.excalidraw'))!)).toMatchObject({ elements: [{ id: 'fern', locked: false }], appState: { gridSize: 0, gridModeEnabled: false } })
+      await mock.busUndo.at(-1)!.undo()
+      expect(await mock.api.vault.readFile('Board.excalidraw')).toBe(EMPTY_SCENE_JSON)
+      await call('open', { path: 'Board.excalidraw', scrollX: 0, zoom: 1, selectedIds: [] })
+      expect(mock.api.workspace.openFile).toHaveBeenCalledWith('Board.excalidraw')
+      expect([...seen].sort()).toEqual(commands.map(command => command.id).sort())
+    } finally { offSurfaces(); off() }
+  })
+
   const scene = { elements: [{ id: 'shape', type: 'rectangle', x: 0, y: 0, width: 100, height: 50 }], appState: { viewBackgroundColor: '#ffffff' }, files: {} }
   const setup = () => { const mock = createMockValleyApi({ manifest: { id: 'excalidraw' }, activePath: 'Other.excalidraw', files: { 'Board.excalidraw': JSON.stringify(scene), 'Other.excalidraw': EMPTY_SCENE_JSON } }); initRuntime(mock.api); registerExcalidrawCommands(mock.api); return mock }
 
@@ -85,9 +122,45 @@ describe('explicit drawing updates', () => {
     const mock = setup()
     await expect(updateDrawing(mock.api, 'Board.excalidraw', {}, 'stale')).rejects.toThrow('changed')
     expect(() => parseDrawingScene({ elements: [{ ...scene.elements[0], width: -1 }] })).toThrow('geometry')
-    saveDrawingDraft('Board.excalidraw', { json: JSON.stringify(scene), baseline: null, error: 'conflict' })
+    saveDrawingDraft('Board.excalidraw', 'closed-copy', { json: JSON.stringify(scene), baseline: null, error: 'conflict' })
     await expect(updateDrawing(mock.api, 'Board.excalidraw', {}, JSON.stringify(scene))).rejects.toThrow('unsaved draft')
     expect(mock.api.vault.writeFileGuarded).not.toHaveBeenCalled()
+  })
+
+  it('refuses a file-level edit or undo through an open copy while a closed copy\'s draft is retained', async () => {
+    const mock = setup()
+    const edited = await updateDrawing(mock.api, 'Board.excalidraw', { appState: { viewBackgroundColor: '#000000' } }, JSON.stringify(scene))
+    const written = await mock.api.vault.readFile('Board.excalidraw')
+    const open = { get: () => ({ scene, revision: written, error: '', view: { selectedIds: [], scrollX: 0, scrollY: 0, zoom: 1, readOnly: false } }), commit: vi.fn(), restore: vi.fn() }
+    const release = claimDrawingDraftOwner('Board.excalidraw', 'open-copy'), off = registerDrawingSession('Board.excalidraw', open)
+    try {
+      // The open copy's own draft is its live state, not a blocker.
+      saveDrawingDraft('Board.excalidraw', 'open-copy', { json: JSON.stringify(scene), baseline: null, error: '' })
+      await updateDrawing(mock.api, 'Board.excalidraw', {}, written)
+      expect(open.commit).toHaveBeenCalledTimes(1)
+      saveDrawingDraft('Board.excalidraw', 'closed-copy', { json: JSON.stringify(scene), baseline: null, error: 'conflict' })
+      await expect(updateDrawing(mock.api, 'Board.excalidraw', {}, written)).rejects.toMatchObject({ message: expect.stringContaining('unsaved draft'), code: 'REVISION_CONFLICT', outcome: 'not-applied' })
+      await expect(edited.revert!.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT', outcome: 'not-applied' })
+      expect(open.commit).toHaveBeenCalledTimes(1)
+      expect(await mock.api.vault.readFile('Board.excalidraw')).toBe(written)
+      expect(drawingDraft('Board.excalidraw', 'closed-copy')?.error).toBe('conflict')
+    } finally { off(); release(); saveDrawingDraft('Board.excalidraw', 'open-copy', null); saveDrawingDraft('Board.excalidraw', 'closed-copy', null) }
+  })
+
+  it('resumes the newest closed copy\'s draft without dropping older closed drafts', () => {
+    setup()
+    const draft = (error: string) => ({ json: JSON.stringify(scene), baseline: null, error })
+    saveDrawingDraft('Board.excalidraw', 'older-copy', draft('older'))
+    saveDrawingDraft('Board.excalidraw', 'newer-copy', draft('newer'))
+    const release = claimDrawingDraftOwner('Board.excalidraw', 'reopened')
+    try {
+      expect(adoptDrawingDraft('Board.excalidraw', 'reopened')?.error).toBe('newer')
+      expect(drawingDraft('Board.excalidraw', 'newer-copy')).toBeUndefined()
+      expect(drawingDraft('Board.excalidraw', 'older-copy')?.error).toBe('older')
+      expect(orphanedDrawingDraftOwners('Board.excalidraw')).toEqual(['older-copy'])
+      expect(adoptDrawingDraft('Board.excalidraw', 'second')?.error).toBe('older')
+      expect(drawingDraft('Board.excalidraw', 'reopened')?.error).toBe('newer')
+    } finally { release(); saveDrawingDraft('Board.excalidraw', 'reopened', null); saveDrawingDraft('Board.excalidraw', 'second', null) }
   })
 
   it('restores a background view without changing focus and refuses deleted selections', async () => {
@@ -99,6 +172,44 @@ describe('explicit drawing updates', () => {
     expect(pendingDrawingView('Board.excalidraw')).toMatchObject({ selectedIds: ['shape'], scrollX: 12, zoom: 2 })
     await expect(surface.restore({ v: 1, path: 'Board.excalidraw', selectedIds: ['missing'] })).rejects.toThrow('no longer exists')
     off()
+  })
+
+  it('opens a closed drawing whose unsaved draft is retained, validating against the draft it resumes', async () => {
+    const mock = setup()
+    const offSurfaces = registerDrawingSurfaces(mock.api)
+    const draftScene = { ...scene, elements: [...scene.elements, { id: 'drafted', type: 'ellipse', x: 5, y: 5, width: 10, height: 10 }] }
+    saveDrawingDraft('Board.excalidraw', 'closed-copy', { json: JSON.stringify(draftScene), baseline: null, error: 'conflict' })
+    const command = mock.commands.find((entry) => entry.id === 'open')!
+    try {
+      await command.run(command.input!.parse({ path: 'Board.excalidraw', selectedIds: ['drafted'], zoom: 2 }), { caller: 'plugin' })
+      expect(mock.api.workspace.openFile).toHaveBeenCalledWith('Board.excalidraw')
+      expect(pendingDrawingView('Board.excalidraw')).toEqual({ selectedIds: ['drafted'], zoom: 2 })
+      expect(drawingDraft('Board.excalidraw', 'closed-copy')?.json).toBe(JSON.stringify(draftScene))
+      expect(mock.api.vault.writeFileGuarded).not.toHaveBeenCalled()
+      await expect(command.run(command.input!.parse({ path: 'Board.excalidraw', selectedIds: ['missing'] }), { caller: 'plugin' })).rejects.toThrow('no longer exists')
+      expect(mock.api.workspace.openFile).toHaveBeenCalledTimes(1)
+    } finally { offSurfaces(); saveDrawingDraft('Board.excalidraw', 'closed-copy', null) }
+  })
+
+  it('refuses to open a drawing view when more than one same-path view could receive it', async () => {
+    const mock = setup()
+    const offSurfaces = registerDrawingSurfaces(mock.api)
+    const view = { selectedIds: [], scrollX: 0, scrollY: 0, zoom: 1, readOnly: false }
+    const pane = () => ({ get: () => ({ scene, revision: JSON.stringify(scene), error: '', view }), commit: vi.fn(), restore: vi.fn() })
+    const left = pane(), right = pane()
+    const offLeft = registerDrawingSession('Board.excalidraw', left), offRight = registerDrawingSession('Board.excalidraw', right)
+    const command = mock.commands.find((entry) => entry.id === 'open')!
+    const input = command.input!.parse({ path: 'Board.excalidraw', selectedIds: ['shape'], scrollX: 12, zoom: 2 })
+    try {
+      await expect(command.run(input, { caller: 'plugin' })).rejects.toMatchObject({ code: 'AMBIGUOUS_TARGET', outcome: 'not-applied', retryable: false })
+      expect(left.restore).not.toHaveBeenCalled(); expect(right.restore).not.toHaveBeenCalled()
+      expect(mock.api.workspace.openFile).not.toHaveBeenCalled()
+      expect(pendingDrawingView('Board.excalidraw')).toBeUndefined()
+      offRight()
+      await command.run(input, { caller: 'plugin' })
+      expect(left.restore).toHaveBeenCalledWith({ selectedIds: ['shape'], scrollX: 12, zoom: 2 })
+      expect(mock.api.workspace.openFile).toHaveBeenCalledWith('Board.excalidraw')
+    } finally { offLeft(); offRight(); offSurfaces() }
   })
 
   it('binds a scene update preview to the exact file revision', async () => {

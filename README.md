@@ -10,6 +10,12 @@ Valley ships this core plugin as a verified release artifact in its application 
 
 All three extensions open in the drawing editor and save back to their original format. SVG files must contain embedded Excalidraw scene data; each save updates both the visible SVG and the embedded drawing. Invalid drawings are reported without overwriting the file. New drawings use `.excalidraw`. Drawing commands, Properties, bookmarks, and `excalidraw` code-block previews support all three formats.
 
+## Mounted drawing commands
+
+`excalidraw:view-inspect` exposes an explicit mounted view identity and separate scene, view, control, form, library, disk, and draft revisions. Mutations require the observations for their exact target. Native actions, selection geometry, tools, library controls, Mermaid drafts, publication, links, and recovery retain the library's existing history and format handlers. Command-bus Undo does not add a second scene history.
+
+The owning build applies a hash-checked additive bridge to Excalidraw 0.18.1 and browser-fs-access 0.29.1. It refuses changed dependency bytes or versions. Native callbacks retain their original implementations; the bridge preserves awaited completion and rechecks the mounted owner, authorization, cancellation, scene, and library after asynchronous work before publication. Typed exports are bounded to 2 MiB, library data to 512 items and 512 KiB. Publication exposes a server receipt separately from an unknown request outcome; accepted effects are never replayed automatically.
+
 ## Package
 
 - `manifest.json`: readable English identity, version, and paired `author` / `authorUrl` arrays.
@@ -34,3 +40,7 @@ npm run check
 The check validates types and package boundaries, runs the package tests, and rebuilds `runtime/`. It requires no Valley source checkout. Keep the rebuilt runtime, locale files, dependency lock, and vendored tools with each release. Increment the package and manifest versions together.
 
 Valley release maintainers explicitly import the compiled artifact into the application’s `plugins.lock.json`; building Valley does not build or read this repository. All privileged work uses declared SDK capabilities, authenticated IPC, and explicit grants. Disabling or unloading the plugin releases its subscriptions and resources.
+
+## Workflow integration
+
+Explicit Workflow blocks reuse this package’s published owner commands through the authenticated SDK command bridge. Configure the application window and required targets before running. Schemas and owner identities are pinned; contract changes require reloading the integration. Writes retain existing grants, revision checks, undo behavior and authoritative receipts. Preview and block insertion perform no commands.

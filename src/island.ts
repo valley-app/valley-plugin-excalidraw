@@ -46,7 +46,8 @@ export function disposeExcalidrawStyles(): void { document.getElementById('excal
 export async function mountEditor(host: HTMLElement, options: MountOptions): Promise<EditorHandle> {
   ensureExcalidrawStyles()
   const island = await loadIsland(host.ownerDocument)
-  const handle = await island.mountEditor(host, { ...options, language: api.ui.language() })
+  const writeClipboardText = (api.ui as { writeClipboardText?: (text: string) => Promise<void> }).writeClipboardText
+  const handle = await island.mountEditor(host, { ...(writeClipboardText ? { writeClipboardText: (text: string) => writeClipboardText.call(api.ui, text) } : {}), ...options, language: api.ui.language() })
   let disposed = false
   const updateLanguage = () => { if (!disposed) handle.setLanguage(api.ui.language()) }
   const unsubscribe = api.ui.onLanguageChanged(updateLanguage)

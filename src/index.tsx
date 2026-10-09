@@ -19,6 +19,7 @@ import { registerExcalidrawFence } from './fence'
 import { disposeExcalidrawStyles } from './island'
 import ExcalidrawEditor from './ExcalidrawEditor'
 import { initLocalization } from './localization'
+import { registerDrawingActions } from './actions'
 
 export function register(api: ValleyPluginApi): () => void {
   initLocalization(api)
@@ -30,11 +31,13 @@ export function register(api: ValleyPluginApi): () => void {
   api.registerView('excalidraw.editor', ExcalidrawEditor as unknown as Parameters<typeof api.registerView>[1])
   const offCommands = registerExcalidrawCommands(api)
   const offSurfaces = registerDrawingSurfaces(api)
+  const offActions = registerDrawingActions(api)
   const offFence = registerExcalidrawFence()
 
   return () => {
     offCommands()
     offSurfaces()
+    offActions()
     offFence()
     disposeExcalidrawStyles()
     disposeStyles()

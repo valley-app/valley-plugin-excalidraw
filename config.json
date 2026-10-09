@@ -44,6 +44,459 @@
     "zh-CN": "runtime/locales/zh-CN.json"
   },
   "runtime": {
-    "ui": "runtime/index.js"
+    "ui": "runtime/index.js",
+    "backend": "runtime/backend.js",
+    "services": [
+      {
+        "id": "workflow.provider",
+        "version": "1.0.0",
+        "method": "workflow.execute",
+        "operation": true,
+        "request": {
+          "type": "unknown"
+        },
+        "response": {
+          "type": "unknown"
+        },
+        "metadata": {
+          "workflow": {
+            "providerId": "excalidraw",
+            "providerVersion": "1.0.0",
+            "nodes": [
+              {
+                "id": "excalidraw.create",
+                "type": "action",
+                "version": "1.0.0",
+                "displayName": "New drawing",
+                "description": "Excalidraw: New drawing. Reuses the owning handler, grants and revisions in the selected window. Confirmed data is exposed as result, with its authoritative receipt. Insertion and previews never dispatch.",
+                "effect": "write",
+                "idempotent": false,
+                "executionMode": "item",
+                "inputs": [
+                  {
+                    "id": "input",
+                    "label": "Input",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "result",
+                    "label": "Confirmed result",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "result": {},
+                        "receipt": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            },
+                            "status": {
+                              "const": "completed"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "revision",
+                            "status"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "result",
+                        "receipt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ],
+                "parameterSchema": {
+                  "type": "object",
+                  "properties": {
+                    "folder": {
+                      "type": "string",
+                      "description": "Explicit vault-relative destination folder. An empty string selects the vault root."
+                    },
+                    "targetWindowId": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "title": "Application window",
+                      "description": "Explicit authenticated application window ID. Uses the owning plugin view in that window.",
+                      "ui": {
+                        "control": "number",
+                        "step": 1
+                      }
+                    },
+                    "commandRevision": {
+                      "description": "Optional owner revision from a previous inspection. Native expectedRevision fields remain separate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "required": [
+                    "targetWindowId",
+                    "folder"
+                  ]
+                },
+                "inputSchema": {
+                  "type": "object"
+                },
+                "outputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "result": {},
+                    "receipt": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "const": "completed"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "revision",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "result",
+                    "receipt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "id": "excalidraw.get",
+                "type": "action",
+                "version": "1.0.0",
+                "displayName": "Inspect drawing",
+                "description": "Excalidraw: Inspect drawing. Reuses the owning handler, grants and revisions in the selected window. Confirmed data is exposed as result, with its authoritative receipt. Insertion and previews never dispatch.",
+                "effect": "read",
+                "idempotent": true,
+                "executionMode": "item",
+                "inputs": [
+                  {
+                    "id": "input",
+                    "label": "Input",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "result",
+                    "label": "Confirmed result",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "result": {},
+                        "receipt": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            },
+                            "status": {
+                              "const": "completed"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "revision",
+                            "status"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "result",
+                        "receipt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ],
+                "parameterSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetWindowId": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "title": "Application window",
+                      "description": "Explicit authenticated application window ID. Uses the owning plugin view in that window.",
+                      "ui": {
+                        "control": "number",
+                        "step": 1
+                      }
+                    },
+                    "commandRevision": {
+                      "description": "Optional owner revision from a previous inspection. Native expectedRevision fields remain separate."
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "targetWindowId"
+                  ],
+                  "additionalProperties": false,
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "inputSchema": {
+                  "type": "object"
+                },
+                "outputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "result": {},
+                    "receipt": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "const": "completed"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "revision",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "result",
+                    "receipt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "id": "excalidraw.scene-update",
+                "type": "action",
+                "version": "1.0.0",
+                "displayName": "Update scene",
+                "description": "Excalidraw: Update scene. Reuses the owning handler, grants and revisions in the selected window. Confirmed data is exposed as result, with its authoritative receipt. Insertion and previews never dispatch.",
+                "effect": "write",
+                "idempotent": false,
+                "executionMode": "item",
+                "inputs": [
+                  {
+                    "id": "input",
+                    "label": "Input",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "result",
+                    "label": "Confirmed result",
+                    "dataType": "json",
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "result": {},
+                        "receipt": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            },
+                            "status": {
+                              "const": "completed"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "revision",
+                            "status"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "result",
+                        "receipt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ],
+                "parameterSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expectedRevision": {
+                      "type": "string"
+                    },
+                    "scene": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "elements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "x",
+                              "y",
+                              "width",
+                              "height"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "type": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "x": {
+                                "type": "number"
+                              },
+                              "y": {
+                                "type": "number"
+                              },
+                              "width": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "height": {
+                                "type": "number",
+                                "minimum": 0
+                              }
+                            }
+                          }
+                        },
+                        "appState": {
+                          "type": "object"
+                        },
+                        "files": {
+                          "type": "object"
+                        }
+                      }
+                    },
+                    "targetWindowId": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "title": "Application window",
+                      "description": "Explicit authenticated application window ID. Uses the owning plugin view in that window.",
+                      "ui": {
+                        "control": "number",
+                        "step": 1
+                      }
+                    },
+                    "commandRevision": {
+                      "description": "Optional owner revision from a previous inspection. Native expectedRevision fields remain separate."
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "scene",
+                    "expectedRevision",
+                    "targetWindowId"
+                  ],
+                  "additionalProperties": false,
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "inputSchema": {
+                  "type": "object"
+                },
+                "outputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "result": {},
+                    "receipt": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "const": "completed"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "revision",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "result",
+                    "receipt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "workflow.catalog",
+        "version": "1.0.0",
+        "method": "workflow.catalog",
+        "operation": true,
+        "request": {
+          "type": "unknown"
+        },
+        "response": {
+          "type": "unknown"
+        }
+      }
+    ],
+    "largeDataOperations": [
+      "workflow.execute"
+    ]
   }
 }

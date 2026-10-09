@@ -69,4 +69,60 @@ describe('drawing island serialization lifecycle', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)) })
     host.remove()
   })
+  it('reports the native stats and grid toggles through control values and revisions', async () => {
+    let state = { activeTool: { type: 'selection', locked: false }, penMode: false, openMenu: null, openDialog: null, openSidebar: null, selectedElementIds: {}, scrollX: 0, scrollY: 0, zoom: { value: 1 }, viewModeEnabled: false, gridSize: 20, gridModeEnabled: true, stats: { open: true, panels: 3 } }
+    const native = { state: () => state, history: () => ({ undo: false, redo: false }), actions: () => [], receipt: () => null, forms: () => ({}) }
+    library.api = { id: 'board', __valleyNative: native, getSceneElements: () => [], getAppState: () => state, getFiles: () => ({}) }
+    library.serialize.mockReset().mockReturnValue('{}')
+    const host = document.createElement('div')
+    document.body.append(host)
+    let handle!: Awaited<ReturnType<typeof mountEditor>>
+    await act(async () => { handle = await mountEditor(host, { initialData: {}, onChange: vi.fn(), onLinkOpen: vi.fn() }) })
+    const open = handle.controls!()
+    expect(open.values).toMatchObject({ statsOpen: true, gridModeEnabled: true, gridSize: 20 })
+    expect(open.values).not.toHaveProperty('showStats')
+    state = { ...state, gridModeEnabled: false, stats: { ...state.stats, open: false } }
+    const closed = handle.controls!()
+    expect(closed.values).toMatchObject({ statsOpen: false, gridModeEnabled: false })
+    expect(closed.revision).not.toBe(open.revision)
+    handle.unmount()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)) })
+    host.remove()
+  })
+  it('registers the host clipboard writer on the native bridge and removes it on unmount', async () => {
+    const off = vi.fn(), clipboard = vi.fn(() => off)
+    library.api = { id: 'board', __valleyNative: { clipboard }, getSceneElements: () => [], getAppState: () => ({}), getFiles: () => ({}) }
+    library.serialize.mockReset().mockReturnValue('{}')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const writeClipboardText = vi.fn(async () => {})
+    let handle!: Awaited<ReturnType<typeof mountEditor>>
+    await act(async () => { handle = await mountEditor(host, { initialData: {}, onChange: vi.fn(), onLinkOpen: vi.fn(), writeClipboardText }) })
+    expect(clipboard).toHaveBeenCalledOnce()
+    expect(clipboard).toHaveBeenCalledWith(writeClipboardText)
+    expect(off).not.toHaveBeenCalled()
+    handle.unmount()
+    expect(off).toHaveBeenCalledOnce()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)) })
+    host.remove()
+  })
+  it('serializes nothing while the native scene is still loading its initial data', async () => {
+    const loaded = [{ id: 'shape', version: 1, versionNonce: 1, isDeleted: false }]
+    let elements: typeof loaded = [], state = { isLoading: true, viewBackgroundColor: '#fff' }
+    library.api = { getSceneElements: () => elements, getAppState: () => state, getFiles: () => ({}) }
+    library.serialize.mockReset().mockImplementation(next => JSON.stringify(next))
+    const host = document.createElement('div')
+    document.body.append(host)
+    const seen: string[] = []
+    let handle!: Awaited<ReturnType<typeof mountEditor>>
+    await act(async () => { handle = await mountEditor(host, { initialData: { elements: loaded }, onChange: () => seen.push(handle?.serialize() ?? ''), onLinkOpen: vi.fn() }) })
+    expect(seen).toEqual([''])
+    expect(handle.serialize()).toBe('')
+    elements = loaded; state = { ...state, isLoading: false }
+    library.props.onChange(elements, state, {})
+    expect(seen.at(-1)).toBe(JSON.stringify(loaded))
+    handle.unmount()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)) })
+    host.remove()
+  })
 })

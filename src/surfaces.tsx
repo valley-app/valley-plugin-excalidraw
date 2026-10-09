@@ -1,9 +1,9 @@
-import { METADATA_PANEL_SEGMENT_V1, provideBookmarkSurface, type PluginProperty, type ValleyPluginApi } from '@valley/plugin-sdk'
+import { METADATA_PANEL_SEGMENT_V1, provideBookmarkSurface, type PluginProperty, type ValleyPluginApi, type PluginCommand } from '@valley/plugin-sdk'
 import type { PluginLinkState } from '@valley/plugin-sdk/paths'
 import { React, api } from './runtime'
-import { readDrawing } from './commands'
+import { readDrawing, readDrawingForOpen } from './commands'
 import { DRAWING_EXTENSIONS } from './formats'
-import { drawingSession, restoreDrawingView, subscribeDrawing, type DrawingView } from './session'
+import { drawingSession, drawingSessionCount, restoreDrawingView, subscribeDrawing, type DrawingView } from './session'
 import { uiText } from './localization'
 import type { InteropValueSchema } from '@valley/plugin-sdk'
 
@@ -74,12 +74,14 @@ function Properties({ path }: { path: string }): React.ReactElement {
 export function registerDrawingSurfaces(pluginApi: ValleyPluginApi): () => void {
   const restore = async (raw: PluginLinkState, _instanceId?: string, options?: { background?: boolean }): Promise<void> => {
     if (raw.v !== 1 || typeof raw.path !== 'string') throw new Error('Unsupported drawing bookmark.')
-    const { scene } = await readDrawing(pluginApi, raw.path)
+    const { scene } = await readDrawingForOpen(pluginApi, raw.path)
     const view = viewFrom(raw)
     if (view.selectedIds?.some((id) => !(scene.elements ?? []).some((element) => (element as { id?: string; isDeleted?: boolean }).id === id && !(element as { isDeleted?: boolean }).isDeleted))) throw new Error('The bookmarked drawing selection no longer exists.')
+    if (drawingSessionCount(raw.path) > 1) throw Object.assign(new Error('More than one view shows this drawing. Use the exact mounted drawing view commands.'), { code: 'AMBIGUOUS_TARGET', outcome: 'not-applied', retryable: false })
     restoreDrawingView(raw.path, view)
     if (!options?.background) pluginApi.workspace.openFile(raw.path)
   }
+  const register = <I, O, E extends 'read' | 'write' | 'execute'>(command: PluginCommand<I, O, E> & { outputSchema: Record<string, unknown> }) => pluginApi.commands.register(command)
   const offs = [provideBookmarkSurface(pluginApi, {
     id: 'excalidraw.editor', surface: 'main_workspace', subscribe: subscribeDrawing,
     getSnapshot: (instanceId) => {
@@ -94,7 +96,7 @@ export function registerDrawingSurfaces(pluginApi: ValleyPluginApi): () => void 
     id: 'excalidraw.properties', label: 'Excalidraw', labelKey: 'manifest.name', icon: 'shapes', extensions: DRAWING_EXTENSIONS, pluginSurfaces: ['main_workspace'],
     inspect: ({ relPath, subject }) => inspect(typeof subject?.view.path === 'string' ? subject.view.path : relPath),
     render: ({ relPath, subject }) => <Properties path={typeof subject?.view.path === 'string' ? subject.view.path : relPath} />
-  }), pluginApi.commands.register({ id: 'open', label: 'Excalidraw: Open drawing view', labelKey: 'excalidraw.command.open', paletteSafe: false, sideEffect: 'read', input: {
+  }), register({ id: 'open', outputSchema: { type: 'object', properties: { v: { const: 1 }, path: { type: 'string', maxLength: 4096 }, selectedIds: { type: 'array', maxItems: 512, items: { type: 'string', maxLength: 4096 } }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, zoom: { type: 'number', minimum: 0.1, maximum: 30 } }, required: ['v', 'path'], additionalProperties: false }, label: 'Excalidraw: Open drawing view', labelKey: 'excalidraw.command.open', paletteSafe: false, sideEffect: 'execute', input: {
     schema: { type: 'object', properties: { path: { type: 'string' }, selectedIds: { type: 'array', items: { type: 'string' } }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, zoom: { type: 'number', minimum: 0.1, maximum: 30 } }, required: ['path'], additionalProperties: false },
     parse: (raw) => { const input = raw as PluginLinkState; if (!input || typeof input.path !== 'string') throw new Error('Expected a drawing path.'); return { ...input, v: 1 } }
   }, run: async (view) => { await restore(view); return view } })]

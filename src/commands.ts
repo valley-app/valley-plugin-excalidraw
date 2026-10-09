@@ -1,10 +1,37 @@
-import { guardedCreatedFileRevert, type ValleyPluginApi } from '@valley/plugin-sdk'
+import { guardedCreatedFileRevert, type PluginCommand, type ValleyPluginApi } from '@valley/plugin-sdk'
 import type { FileBaseline } from '@valley/plugin-sdk/types'
 import { EMPTY_SCENE_JSON } from './emptyScene'
 import { normalizeRelPathOpt } from '@valley/plugin-sdk/paths'
-import { drawingDraft, drawingSession } from './session'
+import { drawingDraft, drawingSession, orphanedDrawingDraftOwners } from './session'
 import type { RawScene } from './island'
-import { isDrawingPath, readScene, writeScene } from './formats'
+import { isDrawingPath, parseScene, readScene, writeScene } from './formats'
+
+const resultText = { type: 'string', maxLength: 16777216 }
+const resultNumber = { type: 'number' }
+const resultFlag = { type: 'boolean' }
+const resultObject = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
+const resultArray = (items: Record<string, unknown>, maxItems = 10000) => ({ type: 'array', items, maxItems })
+const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] })
+const pointResult = { type: 'array', items: resultNumber, minItems: 2, maxItems: 2 }
+const bindingResult = nullable(resultObject({ elementId: resultText, focus: resultNumber, gap: resultNumber, fixedPoint: pointResult }, ['elementId', 'focus', 'gap']))
+const elementResult = resultObject({
+  id: resultText, type: { enum: ['rectangle', 'diamond', 'ellipse', 'embeddable', 'iframe', 'image', 'frame', 'magicframe', 'text', 'line', 'arrow', 'freedraw'] },
+  x: resultNumber, y: resultNumber, width: resultNumber, height: resultNumber, angle: resultNumber,
+  strokeColor: resultText, backgroundColor: resultText, fillStyle: { enum: ['hachure', 'cross-hatch', 'solid', 'zigzag'] }, strokeWidth: resultNumber, strokeStyle: { enum: ['solid', 'dashed', 'dotted'] },
+  roundness: nullable(resultObject({ type: { type: 'integer' }, value: resultNumber }, ['type'])), roughness: resultNumber, opacity: resultNumber,
+  seed: resultNumber, version: resultNumber, versionNonce: resultNumber, index: nullable(resultText), isDeleted: resultFlag,
+  groupIds: resultArray(resultText), frameId: nullable(resultText), boundElements: nullable(resultArray(resultObject({ id: resultText, type: { enum: ['arrow', 'text'] } }, ['id', 'type']))), updated: resultNumber, link: nullable(resultText), locked: resultFlag,
+  customData: { type: 'object', maxProperties: 512, additionalProperties: { $ref: '#/$defs/customDataValue' } },
+  fontSize: resultNumber, fontFamily: { type: 'integer' }, text: resultText, textAlign: { enum: ['left', 'center', 'right'] }, verticalAlign: { enum: ['top', 'middle', 'bottom'] }, containerId: nullable(resultText), originalText: resultText, autoResize: resultFlag, lineHeight: resultNumber,
+  points: resultArray(pointResult), lastCommittedPoint: nullable(pointResult), startBinding: bindingResult, endBinding: bindingResult, startArrowhead: nullable(resultText), endArrowhead: nullable(resultText), elbowed: resultFlag,
+  fixedSegments: nullable(resultArray(resultObject({ start: pointResult, end: pointResult, index: { type: 'integer' } }, ['start', 'end', 'index']))), startIsSpecial: nullable(resultFlag), endIsSpecial: nullable(resultFlag),
+  pressures: resultArray(resultNumber), simulatePressure: resultFlag,
+  fileId: nullable(resultText), status: { enum: ['pending', 'saved', 'error'] }, scale: pointResult, crop: nullable(resultObject({ x: resultNumber, y: resultNumber, width: resultNumber, height: resultNumber, naturalWidth: resultNumber, naturalHeight: resultNumber }, ['x', 'y', 'width', 'height', 'naturalWidth', 'naturalHeight'])), name: nullable(resultText)
+}, ['id', 'type'])
+const binaryFileResult = resultObject({ mimeType: resultText, id: resultText, dataURL: resultText, created: resultNumber, lastRetrieved: resultNumber, version: resultNumber }, ['mimeType', 'id', 'dataURL', 'created'])
+const sceneResult = resultObject({ type: { const: 'excalidraw' }, version: { type: 'integer' }, source: resultText, elements: resultArray(elementResult), appState: resultObject({ gridSize: nullable(resultNumber), gridStep: resultNumber, gridModeEnabled: resultFlag, viewBackgroundColor: resultText }), files: { type: 'object', maxProperties: 10000, additionalProperties: binaryFileResult } }, ['elements'])
+const viewResult = resultObject({ selectedIds: resultArray(resultText, 512), scrollX: resultNumber, scrollY: resultNumber, zoom: resultNumber, readOnly: resultFlag }, ['selectedIds', 'scrollX', 'scrollY', 'zoom', 'readOnly'])
+const drawingOutput = (view: boolean) => ({ ...resultObject({ path: resultText, scene: sceneResult, revision: resultText, ...(view ? { view: nullable(viewResult) } : {}) }, ['path', 'scene', 'revision', ...(view ? ['view'] : [])]), $defs: { customDataValue: { anyOf: [resultText, resultNumber, resultFlag, { type: 'null' }, resultArray({ $ref: '#/$defs/customDataValue' }, 512), { type: 'object', maxProperties: 512, additionalProperties: { $ref: '#/$defs/customDataValue' } }] } } })
 
 /** Parent folder of the active file (or vault root when nothing is open). */
 function activeFolder(api: ValleyPluginApi): string {
@@ -35,8 +62,10 @@ async function createDrawingFile(
  * open it. Undo removes only the exact baseline created here; an edited file wins.
  */
 export function registerExcalidrawCommands(api: ValleyPluginApi): () => void {
-  const offCreate = api.commands.register<{ folder?: string }, { relPath: string }, 'write'>({
+  const register = <I, O, E extends 'read' | 'write' | 'execute'>(command: PluginCommand<I, O, E> & { outputSchema: Record<string, unknown> }) => api.commands.register(command)
+  const offCreate = register<{ folder?: string }, { relPath: string }, 'write'>({
     id: 'create',
+    outputSchema: resultObject({ relPath: resultText }, ['relPath']),
     label: 'Excalidraw: New drawing', labelKey: 'auto.78a7802d9bd6',
     sideEffect: 'write',
     revision: ({ folder }) => ({ folder: folder ?? activeFolder(api) }),
@@ -57,8 +86,8 @@ export function registerExcalidrawCommands(api: ValleyPluginApi): () => void {
       }
     }
   })
-  const offGet = api.commands.register({ id: 'get', label: 'Excalidraw: Inspect drawing', labelKey: 'excalidraw.command.get', paletteSafe: false, sideEffect: 'read', input: { schema: { type: 'object', properties: { path: stringSchema }, required: ['path'], additionalProperties: false }, parse: (raw) => ({ path: drawingPath((raw as Record<string, unknown>)?.path) }) }, run: async ({ path }) => { const drawing = await readDrawing(api, path); return { path, scene: drawing.scene, revision: drawing.revision, view: drawing.view ?? null } } })
-  const offUpdate = api.commands.register({ id: 'scene-update', label: 'Excalidraw: Update scene', labelKey: 'excalidraw.command.update', paletteSafe: false, sideEffect: 'write', input: { schema: { type: 'object', properties: { path: stringSchema, expectedRevision: { type: 'string' }, scene: drawingSceneSchema }, required: ['path', 'scene', 'expectedRevision'], additionalProperties: false }, parse: (raw) => { const input = raw as Record<string, unknown>; if (!input || typeof input.expectedRevision !== 'string') throw new Error('Inspect the drawing and provide its revision.'); return { path: drawingPath(input.path), scene: parseDrawingScene(input.scene), expectedRevision: input.expectedRevision } } }, revision: async ({ path }) => (await readDrawing(api, path)).revision, preview: ({ path, scene }) => ({ path, scene }), run: ({ path, scene, expectedRevision }) => updateDrawing(api, path, scene, expectedRevision) })
+  const offGet = register({ id: 'get', outputSchema: drawingOutput(true), label: 'Excalidraw: Inspect drawing', labelKey: 'excalidraw.command.get', paletteSafe: false, sideEffect: 'read', input: { schema: { type: 'object', properties: { path: stringSchema }, required: ['path'], additionalProperties: false }, parse: (raw) => ({ path: drawingPath((raw as Record<string, unknown>)?.path) }) }, run: async ({ path }) => { const drawing = await readDrawing(api, path); return { path, scene: drawing.scene, revision: drawing.revision, view: drawing.view ?? null } } })
+  const offUpdate = register({ id: 'scene-update', outputSchema: drawingOutput(false), label: 'Excalidraw: Update scene', labelKey: 'excalidraw.command.update', paletteSafe: false, sideEffect: 'write', input: { schema: { type: 'object', properties: { path: stringSchema, expectedRevision: { type: 'string' }, scene: drawingSceneSchema }, required: ['path', 'scene', 'expectedRevision'], additionalProperties: false }, parse: (raw) => { const input = raw as Record<string, unknown>; if (!input || typeof input.expectedRevision !== 'string') throw new Error('Inspect the drawing and provide its revision.'); return { path: drawingPath(input.path), scene: parseDrawingScene(input.scene), expectedRevision: input.expectedRevision } } }, revision: async ({ path }) => (await readDrawing(api, path)).revision, preview: ({ path, scene }) => ({ path, scene }), run: ({ path, scene, expectedRevision }) => updateDrawing(api, path, scene, expectedRevision) })
   return () => { offCreate(); offGet(); offUpdate() }
 
 }
@@ -87,18 +116,37 @@ export function parseDrawingScene(raw: unknown): RawScene {
   return scene as RawScene
 }
 function drawingPath(raw: unknown): string { if (typeof raw !== 'string' || !isDrawingPath(raw) || normalizeRelPathOpt(raw) !== raw) throw new Error('Expected a vault-relative drawing path.'); return raw }
+const unsavedDraft = () => Object.assign(new Error('The drawing has an unsaved draft. Reopen it and resolve the save error before editing.'), { code: 'REVISION_CONFLICT', outcome: 'not-applied', retryable: false })
+/** Read `path` for an edit: a closed copy's retained draft is unsaved work no open copy holds, so never edit past it through another copy. */
+async function readDrawingForEdit(api: ValleyPluginApi, path: string) {
+  drawingPath(path)
+  if (orphanedDrawingDraftOwners(path).length) throw unsavedDraft()
+  return readDrawing(api, path)
+}
 export async function readDrawing(api: ValleyPluginApi, path: string) {
   drawingPath(path)
   const session = drawingSession(path)
   if (session) { const snapshot = session.get(); return { scene: snapshot.scene, revision: snapshot.revision, baseline: null, session, view: snapshot.view } }
-  if (drawingDraft(path)) throw new Error('The drawing has an unsaved draft. Reopen it and resolve the save error before editing.')
+  if (drawingDraft(path)) throw unsavedDraft()
   const file = await api.vault.readFileBaseline(path)
   if (!file) throw new Error('The drawing file no longer exists.')
   const scene = await readScene(path, file.content, document, api)
   return { scene, revision: file.content, baseline: file.baseline, session: undefined, view: undefined }
 }
+/** The scene opening `path` shows: the open copy's, else the closed copy's draft a reopened mount resumes, else the file. */
+export async function readDrawingForOpen(api: ValleyPluginApi, path: string): Promise<{ scene: RawScene }> {
+  drawingPath(path)
+  const session = drawingSession(path)
+  if (session) return { scene: session.get().scene }
+  const resumed = orphanedDrawingDraftOwners(path).at(-1)
+  const draft = resumed === undefined ? undefined : drawingDraft(path, resumed)
+  if (draft) return { scene: parseScene(draft.json) }
+  const file = await api.vault.readFileBaseline(path)
+  if (!file) throw new Error('The drawing file no longer exists.')
+  return { scene: await readScene(path, file.content, document, api) }
+}
 export async function updateDrawing(api: ValleyPluginApi, path: string, scene: RawScene, expectedRevision: string) {
-  const current = await readDrawing(api, path)
+  const current = await readDrawingForEdit(api, path)
   if (current.revision !== expectedRevision) throw new Error('The drawing changed. Inspect it again before editing.')
   if (current.session) {
     await current.session.commit(scene, expectedRevision)
@@ -111,7 +159,7 @@ export async function updateDrawing(api: ValleyPluginApi, path: string, scene: R
   const result = await api.vault.writeFileGuarded(path, content, current.baseline)
   if (!result.ok) throw new Error('The drawing changed or could not be saved. The edit was not applied.')
   const restore = async (content: string, expected: string): Promise<void> => {
-    const latest = await readDrawing(api, path)
+    const latest = await readDrawingForEdit(api, path)
     if (latest.revision !== expected) throw new Error('The drawing changed after this edit. Undo would overwrite newer work.')
     if (latest.session) await latest.session.commit(await readScene(path, content, document, api), expected)
     else if (!(await api.vault.writeFileGuarded(path, content, latest.baseline)).ok) throw new Error('Could not restore the drawing.')
