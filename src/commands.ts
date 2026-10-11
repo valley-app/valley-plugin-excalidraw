@@ -21,7 +21,7 @@ const elementResult = resultObject({
   roundness: nullable(resultObject({ type: { type: 'integer' }, value: resultNumber }, ['type'])), roughness: resultNumber, opacity: resultNumber,
   seed: resultNumber, version: resultNumber, versionNonce: resultNumber, index: nullable(resultText), isDeleted: resultFlag,
   groupIds: resultArray(resultText), frameId: nullable(resultText), boundElements: nullable(resultArray(resultObject({ id: resultText, type: { enum: ['arrow', 'text'] } }, ['id', 'type']))), updated: resultNumber, link: nullable(resultText), locked: resultFlag,
-  customData: { type: 'object', maxProperties: 512, additionalProperties: { $ref: '#/$defs/customDataValue' } },
+  customData: { type: 'object', maxProperties: 512 },
   fontSize: resultNumber, fontFamily: { type: 'integer' }, text: resultText, textAlign: { enum: ['left', 'center', 'right'] }, verticalAlign: { enum: ['top', 'middle', 'bottom'] }, containerId: nullable(resultText), originalText: resultText, autoResize: resultFlag, lineHeight: resultNumber,
   points: resultArray(pointResult), lastCommittedPoint: nullable(pointResult), startBinding: bindingResult, endBinding: bindingResult, startArrowhead: nullable(resultText), endArrowhead: nullable(resultText), elbowed: resultFlag,
   fixedSegments: nullable(resultArray(resultObject({ start: pointResult, end: pointResult, index: { type: 'integer' } }, ['start', 'end', 'index']))), startIsSpecial: nullable(resultFlag), endIsSpecial: nullable(resultFlag),
@@ -31,7 +31,7 @@ const elementResult = resultObject({
 const binaryFileResult = resultObject({ mimeType: resultText, id: resultText, dataURL: resultText, created: resultNumber, lastRetrieved: resultNumber, version: resultNumber }, ['mimeType', 'id', 'dataURL', 'created'])
 const sceneResult = resultObject({ type: { const: 'excalidraw' }, version: { type: 'integer' }, source: resultText, elements: resultArray(elementResult), appState: resultObject({ gridSize: nullable(resultNumber), gridStep: resultNumber, gridModeEnabled: resultFlag, viewBackgroundColor: resultText }), files: { type: 'object', maxProperties: 10000, additionalProperties: binaryFileResult } }, ['elements'])
 const viewResult = resultObject({ selectedIds: resultArray(resultText, 512), scrollX: resultNumber, scrollY: resultNumber, zoom: resultNumber, readOnly: resultFlag }, ['selectedIds', 'scrollX', 'scrollY', 'zoom', 'readOnly'])
-const drawingOutput = (view: boolean) => ({ ...resultObject({ path: resultText, scene: sceneResult, revision: resultText, ...(view ? { view: nullable(viewResult) } : {}) }, ['path', 'scene', 'revision', ...(view ? ['view'] : [])]), $defs: { customDataValue: { anyOf: [resultText, resultNumber, resultFlag, { type: 'null' }, resultArray({ $ref: '#/$defs/customDataValue' }, 512), { type: 'object', maxProperties: 512, additionalProperties: { $ref: '#/$defs/customDataValue' } }] } } })
+const drawingOutput = (view: boolean) => resultObject({ path: resultText, scene: sceneResult, revision: resultText, ...(view ? { view: nullable(viewResult) } : {}) }, ['path', 'scene', 'revision', ...(view ? ['view'] : [])])
 
 /** Parent folder of the active file (or vault root when nothing is open). */
 function activeFolder(api: ValleyPluginApi): string {

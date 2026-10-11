@@ -1,9 +1,9 @@
-import { METADATA_PANEL_SEGMENT_V1, provideBookmarkSurface, type PluginProperty, type ValleyPluginApi, type PluginCommand } from '@valley/plugin-sdk'
+import { METADATA_PANEL_SEGMENT_V1, provideBookmarkSurface, type MountedPluginView, type PluginProperty, type ValleyPluginApi, type PluginCommand } from '@valley/plugin-sdk'
 import type { PluginLinkState } from '@valley/plugin-sdk/paths'
 import { React, api } from './runtime'
 import { readDrawing, readDrawingForOpen } from './commands'
 import { DRAWING_EXTENSIONS } from './formats'
-import { drawingSession, drawingSessionCount, restoreDrawingView, subscribeDrawing, type DrawingView } from './session'
+import { drawingSession, drawingSessionCount, mountedDrawingSession, notifyDrawing, restoreDrawingView, subscribeDrawing, type DrawingView } from './session'
 import { uiText } from './localization'
 import type { InteropValueSchema } from '@valley/plugin-sdk'
 
@@ -81,6 +81,21 @@ export function registerDrawingSurfaces(pluginApi: ValleyPluginApi): () => void 
     restoreDrawingView(raw.path, view)
     if (!options?.background) pluginApi.workspace.openFile(raw.path)
   }
+  const refused = (message: string) => Object.assign(new Error(message), { code: 'TARGET_NOT_FOUND', outcome: 'not-applied', retryable: false })
+  const restoreMounted = (raw: PluginLinkState, mountedView: MountedPluginView): void => {
+    if (mountedView.filePath !== raw.path) throw refused('The exact mounted drawing view shows another file.')
+    let session: ReturnType<typeof mountedDrawingSession>
+    try { session = mountedDrawingSession(mountedView, pluginApi) } catch (error) { throw refused(error instanceof Error ? error.message : String(error)) }
+    const view = viewFrom(raw), elements = (session.get().scene.elements ?? []) as { id?: string; isDeleted?: boolean }[]
+    if (view.selectedIds?.some((id) => !elements.some((element) => element.id === id && !element.isDeleted))) throw refused('The requested drawing selection no longer exists.')
+    session.restore(view); notifyDrawing()
+  }
+  const mountedSchema = { type: 'object', properties: { mountId: { type: 'string', minLength: 1, maxLength: 256 }, generation: { type: 'integer', minimum: 0 }, area: { type: 'string', enum: ['main', 'right'] }, paneId: { type: 'string', minLength: 1, maxLength: 256 }, tabId: { type: 'string', minLength: 1, maxLength: 256 }, filePath: { type: 'string', minLength: 1, maxLength: 4096 }, pluginId: { const: pluginApi.pluginId } }, required: ['mountId', 'generation', 'area', 'paneId', 'tabId', 'filePath', 'pluginId'], additionalProperties: false }
+  const parseMounted = (raw: unknown): MountedPluginView => {
+    const value = raw as Record<string, unknown> | null
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== Object.keys(mountedSchema.properties).sort().join(',') || ['mountId', 'paneId', 'tabId', 'filePath'].some(key => typeof value[key] !== 'string' || !value[key]) || !Number.isSafeInteger(value.generation) || Number(value.generation) < 0 || !['main', 'right'].includes(String(value.area)) || value.pluginId !== pluginApi.pluginId) throw new Error('Expected an exact mounted Excalidraw identity.')
+    return value as unknown as MountedPluginView
+  }
   const register = <I, O, E extends 'read' | 'write' | 'execute'>(command: PluginCommand<I, O, E> & { outputSchema: Record<string, unknown> }) => pluginApi.commands.register(command)
   const offs = [provideBookmarkSurface(pluginApi, {
     id: 'excalidraw.editor', surface: 'main_workspace', subscribe: subscribeDrawing,
@@ -97,8 +112,8 @@ export function registerDrawingSurfaces(pluginApi: ValleyPluginApi): () => void 
     inspect: ({ relPath, subject }) => inspect(typeof subject?.view.path === 'string' ? subject.view.path : relPath),
     render: ({ relPath, subject }) => <Properties path={typeof subject?.view.path === 'string' ? subject.view.path : relPath} />
   }), register({ id: 'open', outputSchema: { type: 'object', properties: { v: { const: 1 }, path: { type: 'string', maxLength: 4096 }, selectedIds: { type: 'array', maxItems: 512, items: { type: 'string', maxLength: 4096 } }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, zoom: { type: 'number', minimum: 0.1, maximum: 30 } }, required: ['v', 'path'], additionalProperties: false }, label: 'Excalidraw: Open drawing view', labelKey: 'excalidraw.command.open', paletteSafe: false, sideEffect: 'execute', input: {
-    schema: { type: 'object', properties: { path: { type: 'string' }, selectedIds: { type: 'array', items: { type: 'string' } }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, zoom: { type: 'number', minimum: 0.1, maximum: 30 } }, required: ['path'], additionalProperties: false },
-    parse: (raw) => { const input = raw as PluginLinkState; if (!input || typeof input.path !== 'string') throw new Error('Expected a drawing path.'); return { ...input, v: 1 } }
-  }, run: async (view) => { await restore(view); return view } })]
+    schema: { type: 'object', properties: { path: { type: 'string' }, mountedView: mountedSchema, selectedIds: { type: 'array', items: { type: 'string' } }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, zoom: { type: 'number', minimum: 0.1, maximum: 30 } }, required: ['path'], additionalProperties: false },
+    parse: (raw) => { const input = raw as PluginLinkState; if (!input || typeof input.path !== 'string') throw new Error('Expected a drawing path.'); const { mountedView, ...view } = input; return { ...view, v: 1, ...(mountedView === undefined ? {} : { mountedView: parseMounted(mountedView) }) } as PluginLinkState & { mountedView?: MountedPluginView } }
+  }, run: async ({ mountedView, ...view }) => { if (mountedView) restoreMounted(view, mountedView); else await restore(view); return view } })]
   return () => offs.forEach((off) => off())
 }

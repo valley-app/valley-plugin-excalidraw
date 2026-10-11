@@ -141,7 +141,12 @@ export async function mountEditor(host: HTMLElement, opts: MountOptions): Promis
   const restoreView: EditorHandle['restoreView'] = (view) => {
     if (disposed) return
     if (!imp) { pendingView = { ...pendingView, ...view }; return }
-    imp.updateScene({ appState: { ...(view.selectedIds ? { selectedElementIds: Object.fromEntries(view.selectedIds.map((id) => [id, true])) } : {}), ...(view.scrollX !== undefined ? { scrollX: view.scrollX } : {}), ...(view.scrollY !== undefined ? { scrollY: view.scrollY } : {}), ...(view.zoom !== undefined ? { zoom: { value: view.zoom } } : {}), ...(view.readOnly !== undefined ? { viewModeEnabled: view.readOnly } : {}) }, captureUpdate: CaptureUpdateAction.NEVER } as Parameters<ImperativeApi['updateScene']>[0])
+    const before = imp.getAppState()
+    const selected = view.selectedIds ? Object.fromEntries(view.selectedIds.map((id) => [id, true])) : view.readOnly !== undefined && view.readOnly !== before.viewModeEnabled ? { ...before.selectedElementIds } : undefined
+    // Commit synchronously so a receipt read right after sees this view, as updateScene does.
+    flushSync(() => imp?.updateScene({ appState: { ...(selected ? { selectedElementIds: selected } : {}), ...(view.scrollX !== undefined ? { scrollX: view.scrollX } : {}), ...(view.scrollY !== undefined ? { scrollY: view.scrollY } : {}), ...(view.zoom !== undefined ? { zoom: { value: view.zoom } } : {}), ...(view.readOnly !== undefined ? { viewModeEnabled: view.readOnly } : {}) }, captureUpdate: CaptureUpdateAction.NEVER } as Parameters<ImperativeApi['updateScene']>[0]))
+    // Excalidraw drops the selection whenever view mode flips (including the write fence's own lock), so re-apply it once that flip has committed.
+    if (selected && view.readOnly !== undefined && JSON.stringify(imp.getAppState().selectedElementIds) !== JSON.stringify(selected)) flushSync(() => imp?.updateScene({ appState: { selectedElementIds: selected }, captureUpdate: CaptureUpdateAction.NEVER } as Parameters<ImperativeApi['updateScene']>[0]))
   }
 
   let offRouting: (() => void) | undefined, offClipboard: (() => void) | undefined

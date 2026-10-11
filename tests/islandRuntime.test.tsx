@@ -69,6 +69,31 @@ describe('drawing island serialization lifecycle', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)) })
     host.remove()
   })
+  it('commits view changes synchronously and keeps the selection when view mode flips', async () => {
+    let state: any = { selectedElementIds: { c: true }, scrollX: 0, scrollY: 0, zoom: { value: 1 }, viewModeEnabled: false }
+    library.api = {
+      getSceneElements: () => [], getAppState: () => state, getFiles: () => ({}), addFiles: vi.fn(),
+      updateScene: vi.fn((scene) => {
+        const flipped = scene.appState.viewModeEnabled !== undefined && scene.appState.viewModeEnabled !== state.viewModeEnabled
+        state = { ...state, ...scene.appState, ...(flipped ? { selectedElementIds: {} } : {}) }
+      })
+    }
+    library.serialize.mockReset().mockReturnValue('{}')
+    const host = document.createElement('div')
+    document.body.append(host)
+    let handle!: Awaited<ReturnType<typeof mountEditor>>
+    await act(async () => { handle = await mountEditor(host, { initialData: {}, onChange: vi.fn(), onLinkOpen: vi.fn() }) })
+    handle.restoreView({ scrollX: 25, scrollY: -35, zoom: 0.75 })
+    expect(handle.getView()).toEqual({ selectedIds: ['c'], scrollX: 25, scrollY: -35, zoom: 0.75, readOnly: false })
+    handle.restoreView({ readOnly: true })
+    expect(handle.getView()).toEqual({ selectedIds: ['c'], scrollX: 25, scrollY: -35, zoom: 0.75, readOnly: true })
+    handle.restoreView({ readOnly: false })
+    expect(handle.getView()).toEqual({ selectedIds: ['c'], scrollX: 25, scrollY: -35, zoom: 0.75, readOnly: false })
+    handle.restoreView({ selectedIds: [], readOnly: true })
+    expect(handle.getView().selectedIds).toEqual([])
+    handle.unmount()
+    host.remove()
+  })
   it('reports the native stats and grid toggles through control values and revisions', async () => {
     let state = { activeTool: { type: 'selection', locked: false }, penMode: false, openMenu: null, openDialog: null, openSidebar: null, selectedElementIds: {}, scrollX: 0, scrollY: 0, zoom: { value: 1 }, viewModeEnabled: false, gridSize: 20, gridModeEnabled: true, stats: { open: true, panels: 3 } }
     const native = { state: () => state, history: () => ({ undo: false, redo: false }), actions: () => [], receipt: () => null, forms: () => ({}) }

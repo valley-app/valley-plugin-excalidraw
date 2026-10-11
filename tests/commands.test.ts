@@ -212,6 +212,29 @@ describe('explicit drawing updates', () => {
     } finally { offLeft(); offRight(); offSurfaces() }
   })
 
+  it('opens a drawing view into one exact mounted view while several same-path views show it', async () => {
+    const mock = setup()
+    const offSurfaces = registerDrawingSurfaces(mock.api)
+    const view = { selectedIds: [], scrollX: 0, scrollY: 0, zoom: 1, readOnly: false }
+    const pane = () => ({ get: () => ({ scene, revision: JSON.stringify(scene), error: '', view }), commit: vi.fn(), restore: vi.fn() })
+    const left = pane(), right = pane(), leftView = { mountId: 'left', generation: 1, area: 'main' as const, paneId: 'left-pane', tabId: 'left-tab', filePath: 'Board.excalidraw', pluginId: 'excalidraw' }
+    const offLeft = registerDrawingSession('Board.excalidraw', left, leftView), offRight = registerDrawingSession('Board.excalidraw', right, { ...leftView, mountId: 'right', paneId: 'right-pane', tabId: 'right-tab' })
+    const command = mock.commands.find((entry) => entry.id === 'open')!
+    const validate = new Ajv({ strict: false }).compile(command.input!.schema!)
+    try {
+      expect(validate({ path: 'Board.excalidraw', mountedView: leftView, selectedIds: ['shape'] })).toBe(true)
+      expect(validate({ path: 'Board.excalidraw', mountedView: { ...leftView, extra: true } })).toBe(false)
+      expect(() => command.input!.parse({ path: 'Board.excalidraw', mountedView: { ...leftView, generation: -1 } })).toThrow('exact mounted')
+      const result = await command.run(command.input!.parse({ path: 'Board.excalidraw', mountedView: leftView, selectedIds: ['shape'], scrollX: 12, zoom: 2 }), { caller: 'agent' })
+      expect(result).toEqual({ v: 1, path: 'Board.excalidraw', selectedIds: ['shape'], scrollX: 12, zoom: 2 })
+      expect(left.restore).toHaveBeenCalledWith({ selectedIds: ['shape'], scrollX: 12, zoom: 2 }); expect(right.restore).not.toHaveBeenCalled()
+      expect(mock.api.workspace.openFile).not.toHaveBeenCalled()
+      for (const input of [{ path: 'Board.excalidraw', mountedView: { ...leftView, generation: 2 } }, { path: 'Other.excalidraw', mountedView: leftView }, { path: 'Board.excalidraw', mountedView: leftView, selectedIds: ['missing'] }]) await expect(command.run(command.input!.parse(input), { caller: 'agent' })).rejects.toMatchObject({ code: 'TARGET_NOT_FOUND', outcome: 'not-applied' })
+      expect(left.restore).toHaveBeenCalledTimes(1); expect(right.restore).not.toHaveBeenCalled(); expect(mock.api.workspace.openFile).not.toHaveBeenCalled()
+      await expect(command.run(command.input!.parse({ path: 'Board.excalidraw', selectedIds: ['shape'] }), { caller: 'agent' })).rejects.toMatchObject({ code: 'AMBIGUOUS_TARGET', outcome: 'not-applied' })
+    } finally { offLeft(); offRight(); offSurfaces() }
+  })
+
   it('binds a scene update preview to the exact file revision', async () => {
     const mock = setup()
     const command = mock.commands.find((entry) => entry.id === 'scene-update')!
