@@ -2,7 +2,7 @@
   "apiVersion": 5,
   "id": "excalidraw",
   "name": "Excalidraw",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Excalidraw whiteboard for .excalidraw, .excalidraw.json and editable .excalidraw.svg files: freehand drawing, shapes, arrows and text on an infinite canvas. Embed drawings in notes with an excalidraw code block, and link elements to notes with [[wikilinks]].",
   "author": [
     "valley"
